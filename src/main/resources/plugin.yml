@@ -1,0 +1,8 @@
+name: EnemyDown
+version: '${version}'
+
+main: plugin.enemyDown.Main
+api-version: '1.19'
+commands:
+  enemyDown:
+  enemySpawn:
