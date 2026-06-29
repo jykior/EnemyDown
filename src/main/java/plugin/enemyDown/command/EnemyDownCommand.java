@@ -37,7 +37,7 @@ import plugin.enemyDown.data.PlayerScore;
 
 public class EnemyDownCommand extends BaseCommand implements Listener {
 
-  public static final int GAMETIME = 20;
+  public static final int GAMETIME = 50;
   public static final String EASY = "easy";
   public static final String NORMAL = "normal";
   public static final String HARD = "hard";
@@ -134,8 +134,9 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
         .findFirst()
         .ifPresent(p -> {
           int point = switch (enemy.getType()) {
-            case ZOMBIE -> 10;
-            case SKELETON, WITCH -> 20;
+            case ZOMBIE,SPIDER -> 10;
+            case SKELETON -> 20;
+            case WITCH -> 30;
             default -> 0;
           };
 
@@ -255,8 +256,8 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
   private EntityType getEnemy(String difficulty) {
     List<EntityType> enemyList = new ArrayList<>();
     enemyList = switch (difficulty) {
-      case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON);
-      case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.WITCH);
+      case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON,EntityType.SPIDER);
+      case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER,EntityType.WITCH);
       default -> List.of(EntityType.ZOMBIE);
     };
     return enemyList.get(new SplittableRandom().nextInt(enemyList.size()));
