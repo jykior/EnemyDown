@@ -1,5 +1,7 @@
 package plugin.enemyDown.command;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -9,6 +11,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Objects;
+import org.apache.ibatis.io.Resources;
+import org.apache.ibatis.session.SqlSession;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -29,7 +35,9 @@ import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.potion.PotionEffect;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import plugin.enemyDown.Main;
-import plugin.enemyDown.data.PlayerScore;
+import plugin.enemyDown.data.ExecutingPlayer;
+import plugin.enemyDown.mapper.PlayerScoreMapper;
+import plugin.enemyDown.mapper.data.PlayerScore;
 
 /**
  * 制限時間内にランダムに出現する敵を倒して、スコアを獲得するゲームを起動するコマンドです。 スコアは敵によって変わり、倒せた敵の合計によってスコアが変動します。 結果は、プレイヤー名、点数、日時などで保存されます。
@@ -45,46 +53,72 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
   public static final String LIST = "list";
 
   private Main main;
-  private List<PlayerScore> playerScoreList = new ArrayList<>();
+  private List<ExecutingPlayer> executingPlayerList = new ArrayList<>();
   private List<Entity> spawnEntityList = new ArrayList<>();
+
+  private SqlSessionFactory sqlSessionFactory;
 
   public EnemyDownCommand(Main main) {
     this.main = main;
+
+    try {
+      InputStream inputStream = Resources.getResourceAsStream("mybatis-config.xml");
+      this.sqlSessionFactory = new SqlSessionFactoryBuilder().build(inputStream);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Override
   public boolean onExecutePlayerCommand(Player player, Command command, String label, String[] args) {
     if (args.length == 1 && LIST.equals(args[0])) {
-      try (Connection con = DriverManager.getConnection(
-          "jdbc:mysql://localhost:3306/spigot_server",
-          "root",
-          "0yuuki");
-          Statement statement = con.createStatement();
-          ResultSet resultset = statement.executeQuery("select * from player_score;")) {
-        while (resultset.next()) {
-          int id = resultset.getInt("id");
-          String name = resultset.getString("player_name");
-          int score = resultset.getInt("score");
-          String difficulty = resultset.getString("difficulty");
+      try (SqlSession session = sqlSessionFactory.openSession()){
+        PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
+        List<PlayerScore> playerScoreList = mapper.selectList();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        for (PlayerScore playerScore :playerScoreList){
+          LocalDateTime date = LocalDateTime.parse(playerScore.getRegisteredAt(), formatter);
 
-          LocalDateTime date = LocalDateTime.parse(resultset.getString("registered_at"), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
-          player.sendMessage(
-              id + "|" + name + "|" + score + "|" + difficulty + "|" + date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+          player.sendMessage(playerScore.getId() + "|"
+              + playerScore.getPlayerName() + "|"
+              + playerScore.getScore() + "|"
+              + playerScore.getDifficulty() + "|"
+              + date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         }
-      } catch (SQLException e) {
-        e.printStackTrace();
       }
-      return false;
+
+//      try (Connection con = DriverManager.getConnection(
+//          "jdbc:mysql://localhost:3306/spigot_server",
+//          "root",
+//          "0yuuki");
+//          Statement statement = con.createStatement();
+//          ResultSet resultset = statement.executeQuery("select * from player_score;")) {
+//        while (resultset.next()) {
+//          int id = resultset.getInt("id");
+//          String name = resultset.getString("player_name");
+//          int score = resultset.getInt("score");
+//          String difficulty = resultset.getString("difficulty");
+//
+//          DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+//          LocalDateTime date = LocalDateTime.parse(resultset.getString("registered_at"), formatter);
+//          player.sendMessage(
+//              id + "|" + name + "|" + score + "|" + difficulty + "|" + date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+//        }
+//      } catch (SQLException e) {
+//        e.printStackTrace();
+//      }
+//      return false;
     }
+
     String difficulty = getDifficulty(player, args);
     if (difficulty.equals(NONE)) {
       return false;
     }
-    PlayerScore nowPlayerScore = getPlayerScore(player);
+    ExecutingPlayer nowExecutingPlayer = getPlayerScore(player);
 
     initPlayerStatus(player);
 
-    gamePlay(player, nowPlayerScore, difficulty);
+    gamePlay(player, nowExecutingPlayer, difficulty);
     return true;
   }
 
@@ -108,10 +142,10 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
    * @param player コマンドを実行したプレイヤー
    * @return 新規プレイヤー
    */
-  private PlayerScore addNewPlayer(Player player) {
-    PlayerScore newPlayer = new PlayerScore();
+  private ExecutingPlayer addNewPlayer(Player player) {
+    ExecutingPlayer newPlayer = new ExecutingPlayer();
     newPlayer.setPlayerName(player.getName());
-    playerScoreList.add(newPlayer);
+    executingPlayerList.add(newPlayer);
     return newPlayer;
   }
 
@@ -129,12 +163,12 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
       return;
     }
 
-    playerScoreList.stream()
+    executingPlayerList.stream()
         .filter(p -> p.getPlayerName().equals(player.getName()))
         .findFirst()
         .ifPresent(p -> {
           int point = switch (enemy.getType()) {
-            case ZOMBIE,SPIDER -> 10;
+            case ZOMBIE, SPIDER -> 10;
             case SKELETON -> 20;
             case WITCH -> 30;
             default -> 0;
@@ -151,20 +185,20 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
    * @param player コマンドを実行したプレイヤー
    * @return　現在実行しているプレイヤーのスコア情報
    */
-  private PlayerScore getPlayerScore(Player player) {
-    PlayerScore playerScore = new PlayerScore();
-    if (playerScoreList.isEmpty()) {
-      playerScore = addNewPlayer(player);
+  private ExecutingPlayer getPlayerScore(Player player) {
+    ExecutingPlayer executingPlayer = new ExecutingPlayer();
+    if (executingPlayerList.isEmpty()) {
+      executingPlayer = addNewPlayer(player);
     } else {
-      playerScore = playerScoreList.stream().findFirst()
+      executingPlayer = executingPlayerList.stream().findFirst()
           .map(ps -> ps.getPlayerName().equals(player.getName())
               ? ps
-              : addNewPlayer(player)).orElse(playerScore);
+              : addNewPlayer(player)).orElse(executingPlayer);
     }
-    playerScore.setGametime(GAMETIME);
-    playerScore.setScore(0);
+    executingPlayer.setGametime(GAMETIME);
+    executingPlayer.setScore(0);
     removePotionEffect(player);
-    return playerScore;
+    return executingPlayer;
   }
 
   /**
@@ -191,14 +225,14 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
    * ゲームを実行します。規定の時間内に敵を倒すとスコアが加算されます。合計スコアを時間経過後に表示します。
    *
    * @param player         コマンドを実行したプレイヤー
-   * @param nowPlayerScore プレイヤースコア情報
+   * @param nowExecutingPlayer プレイヤースコア情報
    */
-  private void gamePlay(Player player, PlayerScore nowPlayerScore, String difficulty) {
+  private void gamePlay(Player player, ExecutingPlayer nowExecutingPlayer, String difficulty) {
     Bukkit.getScheduler().runTaskTimer(main, Runnable -> {
-      if (nowPlayerScore.getGametime() <= 0) {
+      if (nowExecutingPlayer.getGametime() <= 0) {
         Runnable.cancel();
         player.sendTitle("ゲームが終了しました",
-            nowPlayerScore.getPlayerName() + " 合計 " + nowPlayerScore.getScore() + "点！",
+            nowExecutingPlayer.getPlayerName() + " 合計 " + nowExecutingPlayer.getScore() + "点！",
             0, 60, 0);
 
         try (Connection con = DriverManager.getConnection(
@@ -209,8 +243,8 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
 
           statement.executeUpdate(
               "insert player_score(player_name,score,difficulty,registered_at)"
-                  + "values ('" + nowPlayerScore.getPlayerName() + "',"
-                  + "" + "" + nowPlayerScore.getScore() + ","
+                  + "values ('" + nowExecutingPlayer.getPlayerName() + "',"
+                  + "" + "" + nowExecutingPlayer.getScore() + ","
                   + "'" + difficulty + "',"
                   + "now());");
         } catch (SQLException e) {
@@ -225,7 +259,7 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
       }
       Entity spawnEntity = player.getWorld().spawnEntity(getEnemySpawnLocation(player), getEnemy(difficulty));
       spawnEntityList.add(spawnEntity);
-      nowPlayerScore.setGametime(nowPlayerScore.getGametime() - 5);
+      nowExecutingPlayer.setGametime(nowExecutingPlayer.getGametime() - 5);
     }, 0, 5 * 20);
   }
 
@@ -256,8 +290,8 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
   private EntityType getEnemy(String difficulty) {
     List<EntityType> enemyList = new ArrayList<>();
     enemyList = switch (difficulty) {
-      case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON,EntityType.SPIDER);
-      case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER,EntityType.WITCH);
+      case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER);
+      case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER, EntityType.WITCH);
       default -> List.of(EntityType.ZOMBIE);
     };
     return enemyList.get(new SplittableRandom().nextInt(enemyList.size()));
