@@ -1,5 +1,6 @@
 plugins {
     id("java-library")
+    id("com.gradleup.shadow") version "9.4.3"
 }
 
 repositories {
@@ -15,6 +16,8 @@ dependencies {
 
     testCompileOnly ("org.projectlombok:lombok:1.18.26")
     testAnnotationProcessor ("org.projectlombok:lombok:1.18.26")
+
+    implementation("org.mybatis:mybatis:3.5.19")
 }
 
 java {
