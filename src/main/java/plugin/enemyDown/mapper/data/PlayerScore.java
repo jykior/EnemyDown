@@ -6,8 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * プレイヤーのスコア情報を扱うオブジェクト
- * DBに存在するテーブルと連動する
+ * プレイヤーのスコア情報を扱うオブジェクト DBに存在するテーブルと連動する
  */
 @Getter
 @Setter
@@ -20,9 +19,9 @@ public class PlayerScore {
   private String difficulty;
   private LocalDateTime registeredAt;
 
-  public PlayerScore(String playerName,int score,String difficulty){
-this.playerName=playerName;
-this.score=score;
-this.difficulty=difficulty;
+  public PlayerScore(String playerName, int score, String difficulty) {
+    this.playerName = playerName;
+    this.score = score;
+    this.difficulty = difficulty;
   }
 }

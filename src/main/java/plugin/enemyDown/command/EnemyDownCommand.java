@@ -64,7 +64,7 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
     try {
       InputStream inputStream = Resources.getResourceAsStream("mybatis-config.xml");
       this.sqlSessionFactory = new SqlSessionFactoryBuilder().build(inputStream);
-    } catch (IOException e) {
+    } catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
@@ -84,6 +84,7 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
               + playerScore.getRegisteredAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         }
       }
+      return false;
     }
 
     String difficulty = getDifficulty(player, args);
@@ -200,7 +201,7 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
   /**
    * ゲームを実行します。規定の時間内に敵を倒すとスコアが加算されます。合計スコアを時間経過後に表示します。
    *
-   * @param player         コマンドを実行したプレイヤー
+   * @param player             コマンドを実行したプレイヤー
    * @param nowExecutingPlayer プレイヤースコア情報
    */
   private void gamePlay(Player player, ExecutingPlayer nowExecutingPlayer, String difficulty) {
@@ -211,21 +212,21 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
             nowExecutingPlayer.getPlayerName() + " 合計 " + nowExecutingPlayer.getScore() + "点！",
             0, 60, 0);
 
-//        try (Connection con = DriverManager.getConnection(
-//            "jdbc:mysql://localhost:3306/spigot_server",
-//            "root",
-//            "0yuuki");
-//            Statement statement = con.createStatement()) {
-//
-//          statement.executeUpdate(
-//              "insert player_score(player_name,score,difficulty,registered_at)"
-//                  + "values ('" + nowExecutingPlayer.getPlayerName() + "',"
-//                  + "" + "" + nowExecutingPlayer.getScore() + ","
-//                  + "'" + difficulty + "',"
-//                  + "now());");
-//        } catch (SQLException e) {
-//          e.printStackTrace();
-//        }
+        try (Connection con = DriverManager.getConnection(
+            "jdbc:mysql://localhost:3306/spigot_server",
+            "root",
+            "0yuuki");
+            Statement statement = con.createStatement()) {
+
+          statement.executeUpdate(
+              "insert player_score(player_name,score,difficulty,registered_at)"
+                  + "values ('" + nowExecutingPlayer.getPlayerName() + "',"
+                  + "" + "" + nowExecutingPlayer.getScore() + ","
+                  + "'" + difficulty + "',"
+                  + "now());");
+        } catch (SQLException e) {
+          e.printStackTrace();
+        }
 
         spawnEntityList.forEach(Entity::remove);
         spawnEntityList.clear();
@@ -233,12 +234,12 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
         removePotionEffect(player);
 
         //スコア登録処理
-        try (SqlSession session = sqlSessionFactory.openSession(true)){
-          PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
-          mapper.insert(new PlayerScore(nowExecutingPlayer.getPlayerName()
-              , nowExecutingPlayer.getScore()
-              , difficulty));
-        }
+//        try (SqlSession session = sqlSessionFactory.openSession(true)){
+//          PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
+//          mapper.insert(new PlayerScore(nowExecutingPlayer.getPlayerName()
+//              , nowExecutingPlayer.getScore()
+//              , difficulty));
+//        }
         return;
       }
       Entity spawnEntity = player.getWorld().spawnEntity(getEnemySpawnLocation(player), getEnemy(difficulty));

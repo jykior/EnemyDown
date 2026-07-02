@@ -18,6 +18,6 @@
     </environment>
   </environments>
   <mappers>
-    <mapper resource="plugin.enemyDown.mapper.PlayerScoreMapper"/>
+    <mapper class="plugin.enemyDown.mapper.PlayerScoreMapper"/>
   </mappers>
 </configuration>
