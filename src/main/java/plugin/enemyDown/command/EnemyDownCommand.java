@@ -1,42 +1,30 @@
 package plugin.enemyDown.command;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
-import org.apache.ibatis.io.Resources;
-import org.apache.ibatis.session.SqlSession;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.session.SqlSessionFactoryBuilder;
+import java.util.SplittableRandom;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.command.Command;
-import org.bukkit.entity.Entity;
-import org.bukkit.entity.LivingEntity;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import java.util.List;
-import java.util.SplittableRandom;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.potion.PotionEffect;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import plugin.enemyDown.Main;
+import plugin.enemyDown.PlayerScoreData;
 import plugin.enemyDown.data.ExecutingPlayer;
-import plugin.enemyDown.mapper.PlayerScoreMapper;
 import plugin.enemyDown.mapper.data.PlayerScore;
 
 /**
@@ -45,68 +33,44 @@ import plugin.enemyDown.mapper.data.PlayerScore;
 
 public class EnemyDownCommand extends BaseCommand implements Listener {
 
-  public static final int GAMETIME = 20;
+  public static final int GAME_TIME = 20;
   public static final String EASY = "easy";
   public static final String NORMAL = "normal";
   public static final String HARD = "hard";
   public static final String NONE = "none";
   public static final String LIST = "list";
 
-  private Main main;
-  private List<ExecutingPlayer> executingPlayerList = new ArrayList<>();
-  private List<Entity> spawnEntityList = new ArrayList<>();
+  private final Main main;
+  private final PlayerScoreData playerScoreData = new PlayerScoreData();
 
-  private SqlSessionFactory sqlSessionFactory;
+  private final List<ExecutingPlayer> executingPlayerList = new ArrayList<>();
+  private final List<Entity> spawnEntityList = new ArrayList<>();
 
   public EnemyDownCommand(Main main) {
     this.main = main;
-
-    try {
-      InputStream inputStream = Resources.getResourceAsStream("mybatis-config.xml");
-      this.sqlSessionFactory = new SqlSessionFactoryBuilder().build(inputStream);
-    } catch (Exception e) {
-      throw new RuntimeException(e);
-    }
   }
 
   @Override
   public boolean onExecutePlayerCommand(Player player, Command command, String label, String[] args) {
+    //最初の引数が「list」だったらスコアを一覧表示して処理を終了する。
     if (args.length == 1 && LIST.equals(args[0])) {
-      try (SqlSession session = sqlSessionFactory.openSession()) {
-        PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
-        List<PlayerScore> playerScoreList = mapper.selectList();
-
-        for (PlayerScore playerScore : playerScoreList) {
-          player.sendMessage(playerScore.getId() + "|"
-              + playerScore.getPlayerName() + "|"
-              + playerScore.getScore() + "|"
-              + playerScore.getDifficulty() + "|"
-              + playerScore.getRegisteredAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        }
-      }
+      sendPlayerScoreList(player);
       return false;
-    }
+  }
 
-    String difficulty = getDifficulty(player, args);
-    if (difficulty.equals(NONE)) {
-      return false;
-    }
-    ExecutingPlayer nowExecutingPlayer = getPlayerScore(player);
+  String difficulty = getDifficulty(player, args);
+    if(difficulty.equals(NONE))
+  {
+    return false;
+  }
 
-    initPlayerStatus(player);
+  ExecutingPlayer nowExecutingPlayer = getPlayerScore(player);
 
-    gamePlay(player, nowExecutingPlayer, difficulty);
+  initPlayerStatus(player);
+
+  gamePlay(player, nowExecutingPlayer, difficulty);
     return true;
-  }
-
-  private @NonNull String getDifficulty(Player player, String[] args) {
-    String difficulty = EASY;
-    if (args.length == 1 && EASY.equals(args[0]) || NORMAL.equals(args[0]) || HARD.equals(args[0])) {
-      return args[0];
-    }
-    player.sendMessage(ChatColor.RED + "実行できません。コマンド引数の一つ目に難易度指定が必要です。[easy,normal,hard]");
-    return NONE;
-  }
+}
 
   @Override
   public boolean onExecuteNPCCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -114,166 +78,188 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
   }
 
   /**
-   * 新規のプレイヤーを追加します。
-   *
-   * @param player コマンドを実行したプレイヤー
-   * @return 新規プレイヤー
+   * 現在登録されているスコアの一覧をメッセージに送る。
+   * @param player　プレイヤー
    */
-  private ExecutingPlayer addNewPlayer(Player player) {
-    ExecutingPlayer newPlayer = new ExecutingPlayer();
-    newPlayer.setPlayerName(player.getName());
-    executingPlayerList.add(newPlayer);
-    return newPlayer;
+  private void sendPlayerScoreList(Player player) {
+    List<PlayerScore> playerScoreList = playerScoreData.selectList();
+
+    for (PlayerScore playerScore : playerScoreList) {
+      player.sendMessage(playerScore.getId() + "|"
+          + playerScore.getPlayerName() + "|"
+          + playerScore.getScore() + "|"
+          + playerScore.getDifficulty() + "|"
+          + playerScore.getRegisteredAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+    }
   }
 
-  /**
-   * 敵の種類によってスコアの点数を決める
-   *
-   * @param e 敵を倒した時のスコア
-   */
-  @EventHandler
-  public void onEnemyDeath(EntityDeathEvent e) {
-    LivingEntity enemy = e.getEntity();
-    Player player = enemy.getKiller();
+  private @NonNull String getDifficulty(Player player, String[] args) {
+    if (args.length == 1 && EASY.equals(args[0]) || NORMAL.equals(args[0]) || HARD.equals(args[0])) {
+    return args[0];
+  }
+  player.sendMessage(ChatColor.RED + "実行できません。コマンド引数の一つ目に難易度指定が必要です。[easy,normal,hard]");
+  return NONE;
+}
 
-    if (Objects.isNull(player) || spawnEntityList.stream().noneMatch(entity -> entity.equals(enemy))) {
+/**
+ * 新規のプレイヤーを追加します。
+ *
+ * @param player コマンドを実行したプレイヤー
+ * @return 新規プレイヤー
+ */
+private ExecutingPlayer addNewPlayer(Player player) {
+  ExecutingPlayer newPlayer = new ExecutingPlayer();
+  newPlayer.setPlayerName(player.getName());
+  executingPlayerList.add(newPlayer);
+  return newPlayer;
+}
+
+/**
+ * 敵の種類によってスコアの点数を決める
+ *
+ * @param e 敵を倒した時のスコア
+ */
+@EventHandler
+public void onEnemyDeath(EntityDeathEvent e) {
+  LivingEntity enemy = e.getEntity();
+  Player player = enemy.getKiller();
+
+  if (Objects.isNull(player) || spawnEntityList.stream().noneMatch(entity -> entity.equals(enemy))) {
+    return;
+  }
+
+  executingPlayerList.stream()
+      .filter(p -> p.getPlayerName().equals(player.getName()))
+      .findFirst()
+      .ifPresent(p -> {
+        int point = switch (enemy.getType()) {
+          case ZOMBIE, SPIDER -> 10;
+          case SKELETON -> 20;
+          case WITCH -> 30;
+          default -> 0;
+        };
+
+        p.setScore(p.getScore() + point);
+        player.sendMessage("敵を倒した！現在のスコアは" + p.getScore() + "点！");
+      });
+}
+
+/**
+ * 現在実行しているプレイヤーのスコア情報を取得する。
+ *
+ * @param player コマンドを実行したプレイヤー
+ * @return 現在実行しているプレイヤーのスコア情報
+ */
+private ExecutingPlayer getPlayerScore(Player player) {
+  ExecutingPlayer executingPlayer = new ExecutingPlayer();
+  if (executingPlayerList.isEmpty()) {
+    executingPlayer = addNewPlayer(player);
+  } else {
+    executingPlayer = executingPlayerList.stream().findFirst()
+        .map(ps -> ps.getPlayerName().equals(player.getName())
+            ? ps
+            : addNewPlayer(player)).orElse(executingPlayer);
+  }
+  executingPlayer.setGametime(GAME_TIME);
+  executingPlayer.setScore(0);
+  removePotionEffect(player);
+  return executingPlayer;
+}
+
+/**
+ * ゲームが始める前のプレイヤーの状態を設定する。 体力と空腹度を最大にし、装備をネザライト一式にする。
+ *
+ * @param player コマンドを実行したプレイヤー
+ */
+private void initPlayerStatus(Player player) {
+  player.setHealth(20);
+  player.setFoodLevel(20);
+
+  player.sendMessage("ゲーム開始！");
+
+  PlayerInventory inventory = player.getInventory();
+  inventory.setHelmet(new ItemStack(Material.NETHERITE_HELMET));
+  inventory.setChestplate(new ItemStack(Material.NETHERITE_CHESTPLATE));
+  inventory.setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
+  inventory.setBoots(new ItemStack(Material.NETHERITE_BOOTS));
+  inventory.setItemInMainHand(new ItemStack(Material.NETHERITE_SWORD));
+  inventory.setItemInOffHand(new ItemStack(Material.SHIELD));
+}
+
+/**
+ * ゲームを実行します。規定の時間内に敵を倒すとスコアが加算されます。合計スコアを時間経過後に表示します。
+ *
+ * @param player             コマンドを実行したプレイヤー
+ * @param nowExecutingPlayer プレイヤースコア情報
+ */
+private void gamePlay(Player player, ExecutingPlayer nowExecutingPlayer, String difficulty) {
+  Bukkit.getScheduler().runTaskTimer(main, Runnable -> {
+    if (nowExecutingPlayer.getGametime() <= 0) {
+      Runnable.cancel();
+      player.sendTitle("ゲームが終了しました",
+          nowExecutingPlayer.getPlayerName() + " 合計 " + nowExecutingPlayer.getScore() + "点！",
+          0, 60, 0);
+
+      spawnEntityList.forEach(Entity::remove);
+      spawnEntityList.clear();
+
+      removePotionEffect(player);
+
+      playerScoreData.insert(
+          new PlayerScore(nowExecutingPlayer.getPlayerName()
+          , nowExecutingPlayer.getScore()
+          , difficulty));
+
       return;
     }
+    Entity spawnEntity = player.getWorld().spawnEntity(getEnemySpawnLocation(player), getEnemy(difficulty));
+    spawnEntityList.add(spawnEntity);
+    nowExecutingPlayer.setGametime(nowExecutingPlayer.getGametime() - 5);
+  }, 0, 5 * 20);
+}
 
-    executingPlayerList.stream()
-        .filter(p -> p.getPlayerName().equals(player.getName()))
-        .findFirst()
-        .ifPresent(p -> {
-          int point = switch (enemy.getType()) {
-            case ZOMBIE, SPIDER -> 10;
-            case SKELETON -> 20;
-            case WITCH -> 30;
-            default -> 0;
-          };
+/**
+ * 敵の出現エリアを取得します。 出現エリアは自分の位置からX軸とZ軸にプラス、-10～９の値が設定されます。 Y軸はプレイヤーと同じ位置になります。
+ *
+ * @param player コマンドを実行したプレイヤー
+ * @return 敵の出現場所
+ */
+private @NonNull Location getEnemySpawnLocation(Player player) {
+  Location playerLocation = player.getLocation();
+  int randomX = new SplittableRandom().nextInt(20) - 10;
+  int randomZ = new SplittableRandom().nextInt(20) - 10;
 
-          p.setScore(p.getScore() + point);
-          player.sendMessage("敵を倒した！現在のスコアは" + p.getScore() + "点！");
-        });
-  }
+  double x = playerLocation.getX() + randomX;
+  double y = playerLocation.getY();
+  double z = playerLocation.getZ() + randomZ;
 
-  /**
-   * 現在実行しているプレイヤーのスコア情報を取得する。
-   *
-   * @param player コマンドを実行したプレイヤー
-   * @return　現在実行しているプレイヤーのスコア情報
-   */
-  private ExecutingPlayer getPlayerScore(Player player) {
-    ExecutingPlayer executingPlayer = new ExecutingPlayer();
-    if (executingPlayerList.isEmpty()) {
-      executingPlayer = addNewPlayer(player);
-    } else {
-      executingPlayer = executingPlayerList.stream().findFirst()
-          .map(ps -> ps.getPlayerName().equals(player.getName())
-              ? ps
-              : addNewPlayer(player)).orElse(executingPlayer);
-    }
-    executingPlayer.setGametime(GAMETIME);
-    executingPlayer.setScore(0);
-    removePotionEffect(player);
-    return executingPlayer;
-  }
+  return new Location(player.getWorld(), x, y, z);
+}
 
-  /**
-   * ゲームが始める前のプレイヤーの状態を設定する。 体力と空腹度を最大にし、装備をネザライト一式にする。
-   *
-   * @param player コマンドを実行したプレイヤー
-   */
-  private void initPlayerStatus(Player player) {
-    player.setHealth(20);
-    player.setFoodLevel(20);
+/**
+ * ランダムで敵を抽選して、その結果の敵を取得します。
+ *
+ * @param difficulty 難易度
+ * @return 敵
+ */
+private EntityType getEnemy(String difficulty) {
+  List<EntityType> enemyList;
+  enemyList = switch (difficulty) {
+    case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER);
+    case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER, EntityType.WITCH);
+    default -> List.of(EntityType.ZOMBIE);
+  };
+  return enemyList.get(new SplittableRandom().nextInt(enemyList.size()));
+}
 
-    player.sendMessage("ゲーム開始！");
-
-    PlayerInventory inventory = player.getInventory();
-    inventory.setHelmet(new ItemStack(Material.NETHERITE_HELMET));
-    inventory.setChestplate(new ItemStack(Material.NETHERITE_CHESTPLATE));
-    inventory.setLeggings(new ItemStack(Material.NETHERITE_LEGGINGS));
-    inventory.setBoots(new ItemStack(Material.NETHERITE_BOOTS));
-    inventory.setItemInMainHand(new ItemStack(Material.NETHERITE_SWORD));
-    inventory.setItemInOffHand(new ItemStack(Material.SHIELD));
-  }
-
-  /**
-   * ゲームを実行します。規定の時間内に敵を倒すとスコアが加算されます。合計スコアを時間経過後に表示します。
-   *
-   * @param player             コマンドを実行したプレイヤー
-   * @param nowExecutingPlayer プレイヤースコア情報
-   */
-  private void gamePlay(Player player, ExecutingPlayer nowExecutingPlayer, String difficulty) {
-    Bukkit.getScheduler().runTaskTimer(main, Runnable -> {
-      if (nowExecutingPlayer.getGametime() <= 0) {
-        Runnable.cancel();
-        player.sendTitle("ゲームが終了しました",
-            nowExecutingPlayer.getPlayerName() + " 合計 " + nowExecutingPlayer.getScore() + "点！",
-            0, 60, 0);
-
-        spawnEntityList.forEach(Entity::remove);
-        spawnEntityList.clear();
-
-        removePotionEffect(player);
-
-        //スコア登録処理
-        try (SqlSession session = sqlSessionFactory.openSession(true)) {
-          PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
-          mapper.insert(new PlayerScore(nowExecutingPlayer.getPlayerName()
-              , nowExecutingPlayer.getScore()
-              , difficulty));
-        }
-        return;
-      }
-      Entity spawnEntity = player.getWorld().spawnEntity(getEnemySpawnLocation(player), getEnemy(difficulty));
-      spawnEntityList.add(spawnEntity);
-      nowExecutingPlayer.setGametime(nowExecutingPlayer.getGametime() - 5);
-    }, 0, 5 * 20);
-  }
-
-  /**
-   * 敵の出現エリアを取得します。 出現エリアは自分の位置からX軸とZ軸にプラス、-10～９の値が設定されます。 Y軸はプレイヤーと同じ位置になります。
-   *
-   * @param player コマンドを実行したプレイヤー
-   * @return　敵の出現場所
-   */
-  private @NonNull Location getEnemySpawnLocation(Player player) {
-    Location playerLocation = player.getLocation();
-    int randomX = new SplittableRandom().nextInt(20) - 10;
-    int randomZ = new SplittableRandom().nextInt(20) - 10;
-
-    double x = playerLocation.getX() + randomX;
-    double y = playerLocation.getY();
-    double z = playerLocation.getZ() + randomZ;
-
-    return new Location(player.getWorld(), x, y, z);
-  }
-
-  /**
-   * ランダムで敵を抽選して、その結果の敵を取得します。
-   *
-   * @param difficulty 難易度
-   * @return　敵
-   */
-  private EntityType getEnemy(String difficulty) {
-    List<EntityType> enemyList = new ArrayList<>();
-    enemyList = switch (difficulty) {
-      case NORMAL -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER);
-      case HARD -> List.of(EntityType.ZOMBIE, EntityType.SKELETON, EntityType.SPIDER, EntityType.WITCH);
-      default -> List.of(EntityType.ZOMBIE);
-    };
-    return enemyList.get(new SplittableRandom().nextInt(enemyList.size()));
-  }
-
-  /**
-   * プレイヤーに設定されている特殊効果を除外します。
-   *
-   * @param player コマンドを実行したプレイヤー
-   */
-  private void removePotionEffect(Player player) {
-    player.getActivePotionEffects().stream()
-        .map(PotionEffect::getType)
-        .forEach(player::removePotionEffect);
-  }
+/**
+ * プレイヤーに設定されている特殊効果を除外します。
+ *
+ * @param player コマンドを実行したプレイヤー
+ */
+private void removePotionEffect(Player player) {
+  player.getActivePotionEffects().stream()
+      .map(PotionEffect::getType)
+      .forEach(player::removePotionEffect);
+}
 }
