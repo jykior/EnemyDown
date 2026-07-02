@@ -45,7 +45,7 @@ import plugin.enemyDown.mapper.data.PlayerScore;
 
 public class EnemyDownCommand extends BaseCommand implements Listener {
 
-  public static final int GAMETIME = 50;
+  public static final int GAMETIME = 20;
   public static final String EASY = "easy";
   public static final String NORMAL = "normal";
   public static final String HARD = "hard";
@@ -212,34 +212,18 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
             nowExecutingPlayer.getPlayerName() + " 合計 " + nowExecutingPlayer.getScore() + "点！",
             0, 60, 0);
 
-        try (Connection con = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/spigot_server",
-            "root",
-            "0yuuki");
-            Statement statement = con.createStatement()) {
-
-          statement.executeUpdate(
-              "insert player_score(player_name,score,difficulty,registered_at)"
-                  + "values ('" + nowExecutingPlayer.getPlayerName() + "',"
-                  + "" + "" + nowExecutingPlayer.getScore() + ","
-                  + "'" + difficulty + "',"
-                  + "now());");
-        } catch (SQLException e) {
-          e.printStackTrace();
-        }
-
         spawnEntityList.forEach(Entity::remove);
         spawnEntityList.clear();
 
         removePotionEffect(player);
 
         //スコア登録処理
-//        try (SqlSession session = sqlSessionFactory.openSession(true)){
-//          PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
-//          mapper.insert(new PlayerScore(nowExecutingPlayer.getPlayerName()
-//              , nowExecutingPlayer.getScore()
-//              , difficulty));
-//        }
+        try (SqlSession session = sqlSessionFactory.openSession(true)) {
+          PlayerScoreMapper mapper = session.getMapper(PlayerScoreMapper.class);
+          mapper.insert(new PlayerScore(nowExecutingPlayer.getPlayerName()
+              , nowExecutingPlayer.getScore()
+              , difficulty));
+        }
         return;
       }
       Entity spawnEntity = player.getWorld().spawnEntity(getEnemySpawnLocation(player), getEnemy(difficulty));
