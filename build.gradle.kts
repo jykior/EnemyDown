@@ -9,7 +9,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("org.spigotmc:spigot-api:1.19.4-R0.1-SNAPSHOT")
+    implementation("org.spigotmc:spigot-api:1.19.4-R0.1-SNAPSHOT")
 
     compileOnly ("org.projectlombok:lombok:1.18.26")
     annotationProcessor ("org.projectlombok:lombok:1.18.26")
@@ -18,6 +18,11 @@ dependencies {
     testAnnotationProcessor ("org.projectlombok:lombok:1.18.26")
 
     implementation("org.mybatis:mybatis:3.5.19")
+
+    testImplementation(platform("org.junit:junit-bom:6.1.1"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    testImplementation("org.mockito:mockito-core:5.+")
 }
 
 java {
@@ -30,5 +35,8 @@ tasks {
         filesMatching("plugin.yml") {
             expand(props)
         }
+    }
+    test{
+        useJUnitPlatform()
     }
 }
