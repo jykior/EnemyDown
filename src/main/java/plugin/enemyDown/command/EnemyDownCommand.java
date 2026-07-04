@@ -99,7 +99,7 @@ public class EnemyDownCommand extends BaseCommand implements Listener {
     return true;
   }
 
-  private @NonNull String getDifficulty(Player player, String[] args) {
+   String getDifficulty(Player player, String[] args) {
     String difficulty = EASY;
     if (args.length == 1 && EASY.equals(args[0]) || NORMAL.equals(args[0]) || HARD.equals(args[0])) {
       return args[0];
